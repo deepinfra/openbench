@@ -4,7 +4,8 @@ import os
 from typing import Any
 
 from inspect_ai.model._providers.openai_compatible import OpenAICompatibleAPI
-from inspect_ai.model import GenerateConfig
+from inspect_ai.model import ChatMessage, GenerateConfig, ModelCall, ModelOutput
+from inspect_ai.tool import ToolChoice, ToolInfo
 
 
 class DeepInfraAPI(OpenAICompatibleAPI):
@@ -48,3 +49,22 @@ class DeepInfraAPI(OpenAICompatibleAPI):
     def service_model_name(self) -> str:
         """Return model name without service prefix."""
         return self.model_name
+
+    async def generate(
+        self,
+        input: list[ChatMessage],
+        tools: list[ToolInfo],
+        tool_choice: ToolChoice,
+        config: GenerateConfig,
+    ) -> ModelOutput | tuple[ModelOutput | Exception, ModelCall]:
+        # Optional service tier (e.g. "flex" rides DeepInfra's spare-capacity
+        # tier), set via env so benchmark harnesses can control it without
+        # touching eval code. Explicit extra_body settings win.
+        service_tier = os.environ.get("DEEPINFRA_SERVICE_TIER")
+        if service_tier:
+            config = config.model_copy()
+            if config.extra_body is None:
+                config.extra_body = {}
+            if "service_tier" not in config.extra_body:
+                config.extra_body["service_tier"] = service_tier
+        return await super().generate(input, tools, tool_choice, config)
