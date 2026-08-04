@@ -59,7 +59,9 @@ def get_dataset(
             path="openai/mrcr",
             split="train",
             sample_fields=record_to_sample(max_context_size),
-            data_files=f"{needles}needle.parquet",
+            # openai/mrcr re-sharded its flat files into per-config dirs
+            # (2needle/2needle_0.parquet, ...); the flat name resolves nothing.
+            data_files=f"{needles}needle/*.parquet",
         )
 
     return hf_dataset(
