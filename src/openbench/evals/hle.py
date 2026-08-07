@@ -1,7 +1,8 @@
-from inspect_ai import task, Task
+from inspect_ai import task, Task, Epochs
 from inspect_ai.solver import generate, system_message
 from inspect_ai.model import GenerateConfig
 from openbench.datasets.hle import get_dataset
+from openbench.datasets.hle_250_ids import HLE_250_IDS
 from openbench.scorers.hle import hle_scorer
 
 
@@ -68,5 +69,51 @@ def hle_text(
         config=GenerateConfig(
             temperature=0.0,  # Use deterministic generation as per HLE
             max_tokens=max_tokens,  # HLE recommends at least 8192 for reasoning models
+        ),
+    )
+
+
+@task
+def hle_250(
+    grader_model: str = "openrouter/openai/gpt-5.6-luna",
+    grader_reasoning_effort: str = "medium",
+    max_tokens: int = 8192,
+    temperature: float = 1.0,
+    top_p: float = 0.95,
+) -> Task:
+    """Humanity's Last Exam (250): a fixed 250-question text-only HLE subset.
+
+    Mirrors the shape of Artificial Analysis's Endpoint Accuracy Index HLE-250
+    (their exact subset is private): 250 text-only questions stratified over the
+    HLE categories, 10 epochs averaged, sampled at temperature=1.0/top_p=0.95,
+    graded by an equality-checker judge. The question ids live in
+    hle_250_ids.py; the judge defaults to GPT-5.6 Luna (medium) via OpenRouter,
+    which needs OPENROUTER_API_KEY.
+
+    Args:
+        grader_model: Model to use for grading responses
+        grader_reasoning_effort: Reasoning effort for the grader model
+        max_tokens: Maximum tokens for model response
+        temperature: Sampling temperature (non-zero, averaged over epochs)
+        top_p: Nucleus sampling bound
+
+    Returns:
+        Task configured for HLE-250 evaluation
+    """
+    return Task(
+        dataset=get_dataset(text_only=True, ids=HLE_250_IDS, name="hle_250"),
+        solver=[
+            system_message(HLE_SYSTEM_PROMPT),
+            generate(),
+        ],
+        epochs=Epochs(10, "mean"),
+        scorer=hle_scorer(
+            model=grader_model, reasoning_effort=grader_reasoning_effort
+        ),
+        name="hle_250",
+        config=GenerateConfig(
+            temperature=temperature,
+            top_p=top_p,
+            max_tokens=max_tokens,
         ),
     )

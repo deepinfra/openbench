@@ -1,5 +1,5 @@
 import re
-from typing import Callable
+from typing import Callable, Optional
 from inspect_ai.scorer import (
     accuracy,
     scorer,
@@ -8,7 +8,7 @@ from inspect_ai.scorer import (
     Target,
 )
 from inspect_ai.solver import TaskState
-from inspect_ai.model import get_model, ChatMessageUser, Model
+from inspect_ai.model import GenerateConfig, get_model, ChatMessageUser, Model
 from openbench.utils.text import extract_confidence_score
 from openbench.metrics.hle import hle_metrics
 
@@ -56,17 +56,26 @@ def parse_judge_response(judge_response: str) -> tuple[str, str, int]:
 
 
 @scorer(metrics=[accuracy(), stderr(), hle_metrics()])
-def hle_scorer(model: str = "openai/o3-mini-2025-01-31") -> Callable:
+def hle_scorer(
+    model: str = "openai/o3-mini-2025-01-31",
+    reasoning_effort: Optional[str] = None,
+) -> Callable:
     """HLE scorer using model grading.
 
     Args:
         model: Model to use for grading (defaults to o3-mini-2025-01-31 as per HLE repo)
+        reasoning_effort: Reasoning effort for the grader model, when it supports one
     """
+    grader_config = (
+        GenerateConfig(reasoning_effort=reasoning_effort)
+        if reasoning_effort
+        else GenerateConfig()
+    )
 
     async def score(state: TaskState, target: Target) -> Score:
         # Get the grader model - try default first, fallback if not available
         try:
-            grader_model: Model = get_model(model)
+            grader_model: Model = get_model(model, config=grader_config)
         except Exception:
             # Fallback to previous default judge model used in HLE
             try:
