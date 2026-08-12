@@ -60,6 +60,7 @@ If not defined through any of the above methods, parameters resort to **default 
 | CLI Command            | Environment Variable  | Description                                             |
 | ---------------------- | --------------------- | ------------------------------------------------------- |
 | `--epochs`             | `BENCH_EPOCHS`        | Number of epochs to run each evaluation.                |
+| `--epochs-reducer`     | `BENCH_EPOCHS_REDUCER`| Reducer(s) applied when aggregating epoch scores.       |
 | `--limit`              | `BENCH_LIMIT`         | Limit evaluated samples (single number or range).       |
 | `--message-limit`      | `BENCH_MESSAGE_LIMIT` | Maximum number of messages per sample.                  |
 | `--score / --no-score` | `BENCH_SCORE`         | Grade the benchmark, or skip scoring (can score later). |
@@ -109,6 +110,8 @@ Use `-T` Flag for Other Task-Specific Arguments
 | `--sandbox-cleanup / --no-sandbox-cleanup` | `BENCH_SANDBOX_CLEANUP` | Cleanup sandbox environments after tasks (or skip cleanup). |
 
 ### Hub Integration
+
+openbench can export logs to a Hugging Face Hub dataset. This is useful if you want to share your results with the community or use them for further analysis.
 
 | CLI Flag        | Environment Variable | Description                       |
 | --------------- | -------------------- | --------------------------------- |

@@ -1,4 +1,6 @@
 from typing import Optional, List, Dict, Annotated, Tuple, Union
+
+import re
 from rich.console import Console
 from enum import Enum
 import sys
@@ -6,13 +8,16 @@ import time
 import os
 import typer
 import asyncio
-from inspect_ai import eval
+from inspect_ai import Epochs, eval
 from inspect_ai.model import Model
 from inspect_ai.log import EvalLog
 from openbench.config import load_task, EVAL_GROUPS
 from openbench.monkeypatch.display_results_patch import patch_display_results
 from openbench._cli.utils import parse_cli_args
 from openbench.agents import AgentManager
+
+# Ensure pass_hat reducer is registered when CLI is used
+from openbench.metrics import pass_hat as _register_pass_hat  # noqa: F401
 from openbench.utils.livemcpbench_cache import (
     prepare_livemcpbench_cache,
     clear_livemcpbench_root,
@@ -195,10 +200,20 @@ def display_group_summary(
     # Filter to only logs from this group's benchmarks
     # Handle both 'benchmark' and 'openbench/benchmark' task name formats
     def task_matches_benchmark(task_name: str, benchmark_name: str) -> bool:
-        """Check if task name matches benchmark, handling namespace prefixes."""
+        """Check if task name matches benchmark, handling namespace prefixes and suffixes."""
         # Strip namespace prefix if present (e.g., 'openbench/smt_algebra' -> 'smt_algebra')
         task_base = task_name.split("/")[-1] if "/" in task_name else task_name
-        return task_base == benchmark_name
+
+        # Exact match
+        if task_base == benchmark_name:
+            return True
+
+        # Check if task is a variant/subtask of benchmark (e.g., 'chartqapro_direct' matches 'chartqapro')
+        # This handles common suffixes like _direct, _testmini, _all, _mcq, _open, etc.
+        if task_base.startswith(benchmark_name + "_"):
+            return True
+
+        return False
 
     group_logs = [
         log
@@ -219,15 +234,20 @@ def display_group_summary(
         if log.results:
             # Extract accuracy from EvalScore.metrics (correct API per inspect_ai)
             # log.results.scores is a list of EvalScore objects, each with a .metrics dict
+            # Try multiple metric names: accuracy, group_score, overall
             accuracy_value = None
             if log.results.scores:
                 for score in log.results.scores:
                     if hasattr(score, "metrics") and isinstance(score.metrics, dict):
-                        if "accuracy" in score.metrics:
-                            metric = score.metrics["accuracy"]
-                            accuracy_value = (
-                                metric.value if hasattr(metric, "value") else metric
-                            )
+                        # Try to find an aggregate metric (in order of preference)
+                        for metric_name in ["accuracy", "group_score", "overall"]:
+                            if metric_name in score.metrics:
+                                metric = score.metrics[metric_name]
+                                accuracy_value = (
+                                    metric.value if hasattr(metric, "value") else metric
+                                )
+                                break
+                        if accuracy_value is not None:
                             break
 
             # Include benchmarks with accuracy in aggregate calculation
@@ -275,7 +295,7 @@ def display_group_summary(
     typer.echo("\n" + "=" * 60)
     typer.echo(f"📊 GROUP SUMMARY - {group_name}")
     typer.echo("=" * 60)
-    typer.echo(f"Total benchmarks:    {len(benchmark_accuracies)}")
+    typer.echo(f"Total benchmarks:    {len(group_logs)}")
     typer.echo(f"Total samples:       {total_samples:,}")
     typer.echo(f"Mean accuracy:       {mean_accuracy:.2%}")
     typer.echo(f"Median accuracy:     {median_accuracy:.2%}")
@@ -367,6 +387,17 @@ def run_eval(
             help="Number of epochs to run each evaluation", envvar="BENCH_EPOCHS"
         ),
     ] = None,
+    epochs_reducer: Annotated[
+        List[str],
+        typer.Option(
+            "--epochs-reducer",
+            help=(
+                "Reducer(s) to aggregate epoch scores (repeat or comma-separate). "
+                "Examples: --epochs-reducer pass_hat_5 --epochs-reducer mean"
+            ),
+            envvar="BENCH_EPOCHS_REDUCER",
+        ),
+    ] = [],
     limit: Annotated[
         Optional[str],
         typer.Option(
@@ -621,6 +652,14 @@ def run_eval(
             envvar="BENCH_CODE_AGENT",
         ),
     ] = None,
+    hidden_tests: Annotated[
+        bool,
+        typer.Option(
+            "--hidden-tests",
+            help="Run code agents in a sanitized copy of the repo with Exercism tests hidden",
+            envvar="BENCH_HIDDEN_TESTS",
+        ),
+    ] = False,
 ) -> List[EvalLog] | None:
     """
     Run a benchmark on a model.
@@ -666,6 +705,17 @@ def run_eval(
                     "For --code-agent roo, --model must be an OpenRouter model id prefixed with 'openrouter/'. "
                     "Example: --model openrouter/anthropic/claude-sonnet-4-20250514"
                 )
+    # claude code only supports anthropic models
+    if code_agent and code_agent.lower() == "claude_code":
+        for model_name in model:
+            if not model_name.startswith("anthropic/"):
+                raise typer.BadParameter(
+                    "For claude_code, --model must be an Anthropic model id prefixed with 'anthropic/'. "
+                )
+
+    # Propagate hidden test preference to tasks that support it
+    if hidden_tests:
+        task_args["hide_tests"] = True
 
     # Validate model names
     for model_name in model:
@@ -718,6 +768,17 @@ def run_eval(
     # Parse limit string to int or tuple
     parsed_limit = parse_limit(limit)
 
+    # Normalize epoch reducers (support repeated flags or comma-separated values)
+    epoch_reducers = normalize_epoch_reducers(epochs_reducer) if epochs_reducer else []
+    epochs_config: int | Epochs | None
+    if epoch_reducers:
+        if epochs is None:
+            raise typer.BadParameter("--epochs is required when using --epochs-reducer")
+        epoch_value = epochs
+        epochs_config = Epochs(epoch_value, reducer=epoch_reducers)
+    else:
+        epochs_config = epochs
+
     # Apply display patch
     patch_display_results()
 
@@ -752,7 +813,7 @@ def run_eval(
                 model_args=model_args,
                 model_roles=role_models if role_models else None,
                 task_args=task_args,
-                epochs=epochs,
+                epochs=epochs_config,
                 limit=parsed_limit,
                 fail_on_error=fail_on_error,
                 message_limit=message_limit,
@@ -823,3 +884,29 @@ def run_eval(
             except Exception:
                 # Silently ignore cleanup errors
                 pass
+
+
+def normalize_epoch_reducers(raw_reducers: List[str]) -> List[str]:
+    """Expand CLI epoch reducer flags into the list Inspect expects.
+    Also, auto-expands pass^k into pass^1...pass^k"""
+
+    tokens: list[str] = []
+    for reducer in raw_reducers:
+        tokens.extend(
+            token.strip() for token in reducer.split(",") if token and token.strip()
+        )
+
+    expanded: list[str] = []
+    for token in tokens:
+        match = re.fullmatch(r"pass_hat_(\d+)", token)
+        if match:
+            k = int(match.group(1))
+            for i in range(1, k + 1):
+                name = f"pass_hat_{i}"
+                if name not in expanded:
+                    expanded.append(name)
+        else:
+            if token not in expanded:
+                expanded.append(token)
+
+    return expanded

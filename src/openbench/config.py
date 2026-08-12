@@ -18,8 +18,14 @@ from importlib.metadata import entry_points
 import logging
 
 from openbench.utils import BenchmarkMetadata
+from openbench.utils.text import get_fuzzy_suggestions
 
 logger = logging.getLogger(__name__)
+
+ANSI_BOLD = "\033[1m"
+ANSI_BLUE = "\033[34m"
+ANSI_BOLD_BLUE = "\033[1;34m"
+ANSI_RESET = "\033[0m"
 
 
 def _load_entry_point_benchmarks() -> dict[str, BenchmarkMetadata]:
@@ -153,6 +159,14 @@ _BUILTIN_BENCHMARKS = {
         tags=["multiple-choice", "knowledge", "reasoning", "multitask"],
         module_path="openbench.evals.mmlu_pro",
         function_name="mmlu_pro",
+    ),
+    "mmlu-redux": BenchmarkMetadata(
+        name="MMLU-Redux",
+        description="Manually re-annotated subset of 5,700 MMLU questions addressing annotation errors in the original dataset.",
+        category="core",
+        tags=["multiple-choice", "knowledge", "reasoning", "multitask"],
+        module_path="openbench.evals.mmlu_redux",
+        function_name="mmlu_redux",
     ),
     "mmmlu": BenchmarkMetadata(
         name="MMMLU (openai/MMMLU)",
@@ -418,6 +432,14 @@ _BUILTIN_BENCHMARKS = {
         module_path="openbench.evals.ifeval",
         function_name="ifeval",
     ),
+    "ifbench": BenchmarkMetadata(
+        name="IFBench",
+        description="Out-of-distribution instruction following with strict and loose scoring over challenging constraints",
+        category="core",
+        tags=["instruction-following", "constraints", "formatting", "ood"],
+        module_path="openbench.evals.ifbench",
+        function_name="ifbench",
+    ),
     "openbookqa": BenchmarkMetadata(
         name="OpenBookQA",
         description="Elementary-level science questions probing understanding of core facts",
@@ -479,6 +501,14 @@ _BUILTIN_BENCHMARKS = {
         function_name="musr_team_allocation",
         subtask=True,
     ),
+    "natural_questions": BenchmarkMetadata(
+        name="Natural Questions",
+        description="Google's open-domain QA dataset with real Google queries answered from Wikipedia",
+        category="core",
+        tags=["question-answering", "factuality", "open-domain"],
+        module_path="openbench.evals.natural_questions",
+        function_name="natural_questions",
+    ),
     "supergpqa": BenchmarkMetadata(
         name="SuperGPQA",
         description="Scaling LLM Evaluation across 285 Graduate Disciplines - 26,529 multiple-choice questions across science, engineering, medicine, economics, and philosophy",
@@ -502,6 +532,94 @@ _BUILTIN_BENCHMARKS = {
         tags=["factuality", "question-answering", "graded"],
         module_path="openbench.evals.simpleqa",
         function_name="simpleqa",
+    ),
+    "squad_v2": BenchmarkMetadata(
+        name="SQuAD v2",
+        description="Stanford Question Answering Dataset 2.0 with answerable and unanswerable questions",
+        category="core",
+        tags=["question-answering", "reading-comprehension", "extractive-qa"],
+        module_path="openbench.evals.squad_v2",
+        function_name="squad_v2",
+    ),
+    "triviaqa": BenchmarkMetadata(
+        name="TriviaQA",
+        description="Large-scale reading comprehension dataset with trivia questions from Wikipedia and web",
+        category="core",
+        tags=["question-answering", "trivia", "reading-comprehension"],
+        module_path="openbench.evals.triviaqa",
+        function_name="triviaqa",
+    ),
+    "political_evenhandedness": BenchmarkMetadata(
+        name="Political Even-handedness",
+        description="Anthropic's paired-prompt political bias evaluation with even-handedness, refusal, and hedging metrics.",
+        category="safety",
+        tags=["politics", "bias", "model-graded", "paired-prompts"],
+        module_path="openbench.evals.political_evenhandedness",
+        function_name="political_evenhandedness",
+        is_alpha=False,
+    ),
+    "political_evenhandedness_historical_events": BenchmarkMetadata(
+        name="Political Even-handedness: Historical Events",
+        description="Political even-handedness evaluation focused on historical events category.",
+        category="safety",
+        tags=["politics", "bias", "model-graded", "paired-prompts"],
+        module_path="openbench.evals.political_evenhandedness",
+        function_name="political_evenhandedness_historical_events",
+        is_alpha=False,
+    ),
+    "political_evenhandedness_political_figures": BenchmarkMetadata(
+        name="Political Even-handedness: Political Figures",
+        description="Political even-handedness evaluation focused on political figures and parties category.",
+        category="safety",
+        tags=["politics", "bias", "model-graded", "paired-prompts"],
+        module_path="openbench.evals.political_evenhandedness",
+        function_name="political_evenhandedness_political_figures",
+        is_alpha=False,
+    ),
+    "political_evenhandedness_policies": BenchmarkMetadata(
+        name="Political Even-handedness: Policies",
+        description="Political even-handedness evaluation focused on policies category.",
+        category="safety",
+        tags=["politics", "bias", "model-graded", "paired-prompts"],
+        module_path="openbench.evals.political_evenhandedness",
+        function_name="political_evenhandedness_policies",
+        is_alpha=False,
+    ),
+    "political_evenhandedness_social_issues": BenchmarkMetadata(
+        name="Political Even-handedness: Social Issues",
+        description="Political even-handedness evaluation focused on social issues category.",
+        category="safety",
+        tags=["politics", "bias", "model-graded", "paired-prompts"],
+        module_path="openbench.evals.political_evenhandedness",
+        function_name="political_evenhandedness_social_issues",
+        is_alpha=False,
+    ),
+    "political_evenhandedness_us_constitution": BenchmarkMetadata(
+        name="Political Even-handedness: US Constitution",
+        description="Political even-handedness evaluation focused on US Constitution category.",
+        category="safety",
+        tags=["politics", "bias", "model-graded", "paired-prompts"],
+        module_path="openbench.evals.political_evenhandedness",
+        function_name="political_evenhandedness_us_constitution",
+        is_alpha=False,
+    ),
+    "political_evenhandedness_social_identity": BenchmarkMetadata(
+        name="Political Even-handedness: Social and Identity Issues",
+        description="Political even-handedness evaluation focused on social and identity issues category.",
+        category="safety",
+        tags=["politics", "bias", "model-graded", "paired-prompts"],
+        module_path="openbench.evals.political_evenhandedness",
+        function_name="political_evenhandedness_social_identity",
+        is_alpha=False,
+    ),
+    "political_evenhandedness_scientific": BenchmarkMetadata(
+        name="Political Even-handedness: Scientific Topics",
+        description="Political even-handedness evaluation focused on scientific topics category.",
+        category="safety",
+        tags=["politics", "bias", "model-graded", "paired-prompts"],
+        module_path="openbench.evals.political_evenhandedness",
+        function_name="political_evenhandedness_scientific",
+        is_alpha=False,
     ),
     "simpleqa_verified": BenchmarkMetadata(
         name="SimpleQA Verified",
@@ -576,14 +694,6 @@ _BUILTIN_BENCHMARKS = {
         module_path="openbench.evals.mmvetv2",
         function_name="mmvetv2",
     ),
-    "docvqa": BenchmarkMetadata(
-        name="DocVQA",
-        description="Document Visual Question Answering - evaluates models on answering questions about document images (forms, reports, tables, diagrams) using ANLS scoring",
-        category="core",
-        tags=["vision", "multimodal", "documents", "ocr"],
-        module_path="openbench.evals.docvqa",
-        function_name="docvqa",
-    ),
     "healthbench": BenchmarkMetadata(
         name="HealthBench",
         description="Medical dialogue evaluation using physician-created rubrics for assessing healthcare conversations",
@@ -608,6 +718,31 @@ _BUILTIN_BENCHMARKS = {
         tags=["medical", "dialogue", "graded", "rubric-based", "consensus"],
         module_path="openbench.evals.healthbench",
         function_name="healthbench_consensus",
+        subtask=True,
+    ),
+    "gsm8k": BenchmarkMetadata(
+        name="GSM8K",
+        description="Grade School Math 8K - 8,500 diverse grade school math word problems requiring multi-step reasoning",
+        category="core",
+        tags=["math", "reasoning", "chain-of-thought", "word-problems"],
+        module_path="openbench.evals.gsm8k",
+        function_name="gsm8k",
+    ),
+    "gsm_plus": BenchmarkMetadata(
+        name="GSM-Plus",
+        description="GSM-Plus robustness benchmark with perturbations to test math reasoning stability",
+        category="core",
+        tags=["math", "reasoning", "robustness", "word-problems"],
+        module_path="openbench.evals.gsm_plus",
+        function_name="gsm_plus",
+    ),
+    "gsm_plus_mini": BenchmarkMetadata(
+        name="GSM-Plus Mini",
+        description="GSM-Plus smaller test set (2400 samples)",
+        category="core",
+        tags=["math", "reasoning", "robustness", "word-problems"],
+        module_path="openbench.evals.gsm_plus",
+        function_name="gsm_plus_mini",
         subtask=True,
     ),
     "mgsm": BenchmarkMetadata(
@@ -5734,6 +5869,33 @@ _BUILTIN_BENCHMARKS = {
         module_path="openbench.evals.cosafe_m2s",
         function_name="cosafe_m2s",
     ),
+    "tau_bench_retail": BenchmarkMetadata(
+        name="TauBench Retail",
+        description="Tau-bench dual-control customer support simulation in the retail domain.",
+        category="agents",
+        tags=["agents", "tools", "graded"],
+        module_path="openbench.evals.tau_bench",
+        function_name="tau_bench_retail",
+        is_alpha=True,
+    ),
+    "tau_bench_airline": BenchmarkMetadata(
+        name="TauBench Airline",
+        description="Tau-bench airline operations benchmark with simulated users and shared tools.",
+        category="agents",
+        tags=["agents", "tools", "graded"],
+        module_path="openbench.evals.tau_bench",
+        function_name="tau_bench_airline",
+        is_alpha=True,
+    ),
+    "tau_bench_telecom": BenchmarkMetadata(
+        name="TauBench Telecom",
+        description="Tau-bench telecom troubleshooting scenarios exercising complex tool flows.",
+        category="agents",
+        tags=["agents", "tools", "graded"],
+        module_path="openbench.evals.tau_bench",
+        function_name="tau_bench_telecom",
+        is_alpha=True,
+    ),
     "rocketscience": BenchmarkMetadata(
         name="RocketScience",
         description="Contrastive spatial reasoning benchmark",
@@ -6029,10 +6191,17 @@ def load_task(benchmark_name: str, allow_alpha: bool = False) -> Callable:
         return _load_task_from_local_path(path)
 
     # Neither registry nor valid path
+    available_benchmarks = ", ".join(sorted(TASK_REGISTRY.keys()))
+    suggestions = get_fuzzy_suggestions(benchmark_name, TASK_REGISTRY.keys(), limit=3)
+    suggestion_text = ""
+    if suggestions:
+        bolded = ", ".join(
+            f"{ANSI_BOLD_BLUE}{suggestion}{ANSI_RESET}" for suggestion in suggestions
+        )
+        suggestion_text = f" Did you mean {bolded}?"
     raise ValueError(
-        f"Unknown benchmark: '{benchmark_name}'. "
-        # return available benchmarks alphabetically
-        f"Available benchmarks: {', '.join(sorted(TASK_REGISTRY.keys()))}"
+        f"Unknown benchmark: '{benchmark_name}'.{suggestion_text}\n\n"
+        f"Available benchmarks:\n\n{available_benchmarks}"
     )
 
 
@@ -6487,41 +6656,6 @@ EVAL_GROUPS = {
             "mgsm_non_latin",
         ],
     ),
-    "mmmu": EvalGroup(
-        name="MMMU",
-        description="Aggregate of 29+ MMMU subject tasks",
-        benchmarks=[
-            "mmmu_accounting",
-            "mmmu_agriculture",
-            "mmmu_architecture_and_engineering",
-            "mmmu_art",
-            "mmmu_art_theory",
-            "mmmu_basic_medical_science",
-            "mmmu_biology",
-            "mmmu_chemistry",
-            "mmmu_clinical_medicine",
-            "mmmu_design",
-            "mmmu_diagnostics_and_laboratory_medicine",
-            "mmmu_electronics",
-            "mmmu_energy_and_power",
-            "mmmu_finance",
-            "mmmu_geography",
-            "mmmu_history",
-            "mmmu_literature",
-            "mmmu_manage",
-            "mmmu_marketing",
-            "mmmu_materials",
-            "mmmu_math",
-            "mmmu_mcq",
-            "mmmu_mechanical_engineering",
-            "mmmu_music",
-            "mmmu_open",
-            "mmmu_pharmacy",
-            "mmmu_physics",
-            "mmmu_public_health",
-            "mmmu_sociology",
-        ],
-    ),
     "arabic_exams": EvalGroup(
         name="Arabic Exams",
         description="Aggregate of 40+ Arabic exam tasks",
@@ -6567,17 +6701,6 @@ EVAL_GROUPS = {
             "arabic_exams_political_science_university",
             "arabic_exams_social_science_middle_school",
             "arabic_exams_social_science_primary_school",
-        ],
-    ),
-    "exercism": EvalGroup(
-        name="Exercism",
-        description="Aggregate of 5 Exercism coding tasks",
-        benchmarks=[
-            "exercism_go",
-            "exercism_java",
-            "exercism_javascript",
-            "exercism_python",
-            "exercism_rust",
         ],
     ),
     "anli": EvalGroup(
@@ -6788,6 +6911,28 @@ EVAL_GROUPS = {
             "safemt_m2s",
             "cosafe_m2s",
             "mhj_m2s",
+        ],
+    ),
+    "multimodal": EvalGroup(
+        name="Multimodal Benchmarks",
+        description="Select suite of vision-language benchmarks (note: this is not a comprehensive list of all multimodal benchmarks)",
+        benchmarks=[
+            "chartqapro",
+            "mathvista",
+            "mmmu_pro_vision",
+            "mmstar",
+            "mmvetv2",
+            "ocrbenchv2",
+            "rocketscience",
+        ],
+    ),
+    "tau_bench": EvalGroup(
+        name="TauBench",
+        description="Aggregate of 3 TauBench tasks",
+        benchmarks=[
+            "tau_bench_retail",
+            "tau_bench_airline",
+            "tau_bench_telecom",
         ],
     ),
 }

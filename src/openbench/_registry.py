@@ -265,6 +265,8 @@ from .evals.healthbench import healthbench, healthbench_hard, healthbench_consen
 from .evals.hellaswag import hellaswag  # noqa: F401, E402
 from .evals.hle import hle, hle_text  # noqa: F401, E402
 from .evals.humaneval import humaneval  # noqa: F401, E402
+from .evals.ifeval import ifeval  # noqa: F401, E402
+from .evals.ifbench import ifbench  # noqa: F401, E402
 from .evals.exercism.exercism import (  # noqa: F401, E402
     exercism,
     exercism_python,
@@ -279,14 +281,18 @@ from .evals.mathvista import mathvista  # noqa: F401, E402
 from .evals.mbpp import mbpp  # noqa: F401, E402
 from .evals.medmcqa import medmcqa  # noqa: F401, E402
 from .evals.medqa import medqa  # noqa: F401, E402
+from .evals.gsm8k import gsm8k  # noqa: F401, E402
+from .evals.gsm_plus import gsm_plus, gsm_plus_mini  # noqa: F401, E402
 from .evals.mgsm import mgsm, mgsm_en, mgsm_latin, mgsm_non_latin  # noqa: F401, E402
 from .evals.mmlu import mmlu  # noqa: F401, E402
 from .evals.mmlu_pro import mmlu_pro  # noqa: F401, E402
+from .evals.mmlu_redux import mmlu_redux  # noqa: F401, E402
 from .evals.multichallenge import multichallenge  # noqa: F401, E402
 from .evals.mrcr import openai_mrcr, openai_mrcr_2n, openai_mrcr_4n, openai_mrcr_8n  # noqa: F401, E402
 from .evals.mmstar import mmstar  # noqa: F401, E402
 from .evals.mmvetv2 import mmvetv2  # noqa: F401, E402
 from .evals.musr import musr  # noqa: F401, E402
+from .evals.natural_questions import natural_questions  # noqa: F401, E402
 from .evals.openbookqa import openbookqa  # noqa: F401, E402
 from .evals.pubmedqa import pubmedqa  # noqa: F401, E402
 from .evals.piqa import piqa  # noqa: F401, E402
@@ -295,7 +301,19 @@ from .evals.scicode import scicode  # noqa: F401, E402
 from .evals.sealqa import sealqa  # noqa: F401, E402
 from .evals.swag import swag  # noqa: F401, E402
 from .evals.simpleqa import simpleqa  # noqa: F401, E402
+from .evals.political_evenhandedness import (  # noqa: F401, E402
+    political_evenhandedness,
+    political_evenhandedness_historical_events,
+    political_evenhandedness_political_figures,
+    political_evenhandedness_policies,
+    political_evenhandedness_social_issues,
+    political_evenhandedness_us_constitution,
+    political_evenhandedness_social_identity,
+    political_evenhandedness_scientific,
+)
 from .evals.simpleqa_verified import simpleqa_verified  # noqa: F401, E402
+from .evals.squad_v2 import squad_v2  # noqa: F401, E402
+from .evals.triviaqa import triviaqa  # noqa: F401, E402
 from .evals.tumlu import tumlu  # noqa: F401, E402
 from .evals.winogrande import winogrande  # noqa: F401, E402
 from .evals.wsc273 import wsc273  # noqa: F401, E402
@@ -342,7 +360,6 @@ from .evals.arc_agi import arc_agi, arc_agi_1, arc_agi_2  # noqa: F401, E402
 from .evals.agentdojo import agentdojo  # noqa: F401, E402
 from .evals.mockaime import otis_mock_aime, otis_mock_aime_2024, otis_mock_aime_2025  # noqa: F401, E402
 from .evals.chartqapro import chartqapro  # noqa: F401, E402
-from .evals.docvqa import docvqa  # noqa: F401, E402
 
 # cybench is defined in openbench-cyber package, not here
 # from .evals.cybench import cybench  # noqa: F401, E402
@@ -387,6 +404,11 @@ from .evals import polyglotoxicity  # noqa: F401, E402
 from .evals import race  # noqa: F401, E402
 from .evals import qa4mre  # noqa: F401, E402
 from .evals import qasper  # noqa: F401, E402
+from .evals.tau_bench import (  # noqa: F401, E402
+    tau_bench_airline,
+    tau_bench_retail,
+    tau_bench_telecom,
+)
 
 # Knowledge QA benchmarks
 from .evals import logiqa  # noqa: F401, E402
