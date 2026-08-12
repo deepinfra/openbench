@@ -1,4 +1,4 @@
-from typing import Any, List, Union, cast
+from typing import Any, Collection, List, Optional, Union, cast
 
 from inspect_ai.dataset import Dataset, Sample, MemoryDataset, hf_dataset
 from inspect_ai.model import ChatMessageUser, ContentText, ContentImage
@@ -47,11 +47,17 @@ def record_to_sample(record: dict) -> Sample:
     )
 
 
-def get_dataset(text_only: bool = False) -> Dataset:
+def get_dataset(
+    text_only: bool = False,
+    ids: Optional[Collection[str]] = None,
+    name: Optional[str] = None,
+) -> Dataset:
     """Load the HLE (Humanity's Last Exam) dataset.
 
     Args:
         text_only: If True, filter out multi-modal questions with images
+        ids: If given, keep only the questions with these ids
+        name: Dataset name override (defaults to hle/hle_text)
 
     Returns:
         Dataset with HLE questions and answers
@@ -75,4 +81,14 @@ def get_dataset(text_only: bool = False) -> Dataset:
     else:
         dataset_name = "hle"
 
-    return MemoryDataset(samples=samples, name=dataset_name)
+    if ids is not None:
+        wanted = set(ids)
+        samples = [s for s in samples if s.id in wanted]
+        if len(samples) != len(wanted):
+            missing = wanted - {s.id for s in samples}
+            raise ValueError(
+                f"HLE subset ids not found in the dataset: {sorted(missing)[:5]}"
+                f" ({len(missing)} missing)"
+            )
+
+    return MemoryDataset(samples=samples, name=name or dataset_name)

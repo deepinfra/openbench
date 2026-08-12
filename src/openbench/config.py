@@ -670,6 +670,14 @@ _BUILTIN_BENCHMARKS = {
         function_name="hle_text",
         subtask=True,
     ),
+    "hle_250": BenchmarkMetadata(
+        name="Humanity's Last Exam (250)",
+        description="Fixed 250-question text-only HLE subset, stratified over categories, 10 epochs averaged at temperature=1.0/top_p=0.95 - mirrors the shape of Artificial Analysis's Endpoint Accuracy Index HLE-250",
+        category="core",
+        tags=["knowledge", "reasoning", "text-only", "graded", "frontier"],
+        module_path="openbench.evals.hle",
+        function_name="hle_250",
+    ),
     "mmstar": BenchmarkMetadata(
         name="MMStar",
         description="MMStar benchmark for measuring multi-modal gain and leakage via coordinated vision and text ablations",
