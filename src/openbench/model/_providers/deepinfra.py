@@ -1,48 +1,51 @@
 """DeepInfra AI provider implementation."""
 
 import os
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 
 from inspect_ai.model._providers.openai_compatible import OpenAICompatibleAPI
 from inspect_ai.model import ChatMessage, GenerateConfig, ModelCall, ModelOutput
 from inspect_ai.tool import ToolChoice, ToolInfo
+from openai.lib.streaming.chat import ChatCompletionStreamState
+from openai.types.chat import ChatCompletion
 
-# The OpenAI SDK defaults to read=600s, and nothing upstream overrides it for
-# an OpenAI-compatible provider: `openai_compatible.py` builds its AsyncOpenAI
-# without a `timeout=`, and inspect spends GenerateConfig.timeout solely on
-# tenacity's stop_after_delay, which bounds *retrying* and never reaches the
-# socket. So a generation that legitimately runs past ten minutes is cut off
-# mid-request by the client, not by the server.
-#
-# That is not hypothetical: benchmarking Qwen3.5-9B on mbpp, which leaves
-# max_tokens unset, 19-24% of requests died at exactly 599-602s while the API
-# had admitted every one of them in about a second and refused none. Successful
-# requests in the same window tailed out to 479s, so the 600s cut lands inside
-# the live part of the latency distribution -- and it removes the *slowest*
-# samples, which biases the score rather than merely shrinking it.
-#
-# An hour is far above any single completion we have measured, and it is a
-# backstop rather than a target: a run that needs it has a problem worth seeing.
-#
-# Deliberately NOT read from config.timeout, which is what the Groq provider in
-# this repo does. inspect already spends config.timeout as the retry budget
-# (stop_after_delay), so using the same number for a single request lets one
-# attempt consume the entire budget and leaves nothing for a retry -- which is
-# the failure this exists to fix: at --timeout 600 the per-request cap and the
-# retry budget coincided, so the first timeout killed the sample outright. The
-# two are different quantities and a caller needs to be able to set the
-# per-request cap *below* the retry budget.
+# The OpenAI SDK's read timeout defaults to 600s and nothing upstream raises
+# it, so a long generation is cut off client-side mid-request. An hour is a
+# backstop, not a target. Not taken from config.timeout, which inspect already
+# spends as the retry budget -- the two are different quantities.
 DEFAULT_REQUEST_TIMEOUT_SECS = 3600.0
+# Only waiting for tokens deserves the long budget; a bare float would raise
+# every phase, so an unreachable endpoint would hang for the whole hour.
 CONNECT_TIMEOUT_SECS = 30.0
-REQUEST_TIMEOUT_ENV_VAR = "DEEPINFRA_REQUEST_TIMEOUT"
+
+
+def parse_stream_arg(value: Any) -> bool | Literal["auto"]:
+    """Parse the ``stream`` model arg / env var into True, False, or "auto"."""
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if text == "auto":
+        return "auto"
+    return text in ("1", "true", "yes")
 
 
 class DeepInfraAPI(OpenAICompatibleAPI):
     """DeepInfra AI provider - scalable inference infrastructure.
 
     Uses OpenAI-compatible API with DeepInfra-specific optimizations.
+
+    Responses can be streamed over SSE and reassembled locally, which avoids
+    proxy idle timeouts on long generations while returning the exact same
+    ``ChatCompletion`` object as a non-streaming call. Controlled by the
+    ``stream`` model arg (``-M stream=true|false|auto``) or the
+    ``DEEPINFRA_STREAM`` environment variable. The default ``"auto"`` streams
+    when reasoning is requested or ``max_tokens >= 8192``.
+
+    An optional service tier can be set via the ``DEEPINFRA_SERVICE_TIER``
+    environment variable ("flex" rides spare capacity); an explicit
+    ``extra_body`` setting wins.
     """
 
     def __init__(
@@ -67,21 +70,17 @@ class DeepInfraAPI(OpenAICompatibleAPI):
                 "DeepInfra API key not found. Set DEEPINFRA_API_KEY environment variable."
             )
 
-        # Read from the environment for the same reason the service tier is: a
-        # harness can set it without editing eval code. An explicit `timeout` in
-        # model_args still wins, and it reaches AsyncOpenAI through the base's
-        # **model_args, where it takes precedence over the http client's own
-        # default.
-        timeout_env = os.environ.get(REQUEST_TIMEOUT_ENV_VAR)
-        budget = float(timeout_env) if timeout_env else DEFAULT_REQUEST_TIMEOUT_SECS
-        # An httpx.Timeout rather than a bare float: a float would raise every
-        # phase to the budget, including connect, so an unreachable endpoint
-        # would hang for the full hour instead of failing in seconds. Only
-        # waiting for generated tokens deserves the long budget.
         model_args.setdefault(
             "timeout",
-            httpx.Timeout(budget, connect=CONNECT_TIMEOUT_SECS),
+            httpx.Timeout(DEFAULT_REQUEST_TIMEOUT_SECS, connect=CONNECT_TIMEOUT_SECS),
         )
+
+        # Pop before super().__init__ - leftover model_args are forwarded to
+        # the AsyncOpenAI constructor, which rejects unknown kwargs
+        stream_arg = model_args.pop("stream", None)
+        if stream_arg is None:
+            stream_arg = os.environ.get("DEEPINFRA_STREAM", "auto")
+        self.streaming: bool | Literal["auto"] = parse_stream_arg(stream_arg)
 
         super().__init__(
             model_name=model_name_clean,
@@ -104,14 +103,50 @@ class DeepInfraAPI(OpenAICompatibleAPI):
         tool_choice: ToolChoice,
         config: GenerateConfig,
     ) -> ModelOutput | tuple[ModelOutput | Exception, ModelCall]:
-        # Optional service tier (e.g. "flex" rides DeepInfra's spare-capacity
-        # tier), set via env so benchmark harnesses can control it without
-        # touching eval code. Explicit extra_body settings win.
+        # DeepInfra accepts an optional service_tier ("flex" rides spare
+        # capacity). Set via env so a harness can control it without touching
+        # eval code; an explicit extra_body setting wins.
         service_tier = os.environ.get("DEEPINFRA_SERVICE_TIER")
         if service_tier:
             config = config.model_copy()
             if config.extra_body is None:
                 config.extra_body = {}
-            if "service_tier" not in config.extra_body:
-                config.extra_body["service_tier"] = service_tier
+            config.extra_body.setdefault("service_tier", service_tier)
         return await super().generate(input, tools, tool_choice, config)
+
+    def should_stream(self, config: GenerateConfig) -> bool:
+        """Decide whether this request goes over SSE."""
+        if self.streaming != "auto":
+            return self.streaming
+        # Stream when reasoning is in play or the response is large enough
+        # to risk proxy idle/read timeouts
+        return (
+            config.reasoning_effort is not None
+            or config.reasoning_tokens is not None
+            or (config.max_tokens is not None and config.max_tokens >= 8192)
+        )
+
+    async def _generate_completion(
+        self, request: dict[str, Any], config: GenerateConfig
+    ) -> ChatCompletion:
+        if not self.should_stream(config):
+            return await super()._generate_completion(request, config)
+
+        tools = request.get("tools")
+        state: ChatCompletionStreamState[object] = ChatCompletionStreamState(
+            input_tools=tools if isinstance(tools, list) else []
+        )
+        stream = await self.client.chat.completions.create(
+            **request,
+            stream=True,
+            stream_options={"include_usage": True},  # usage rides the final chunk
+        )
+        async for chunk in stream:
+            state.handle_chunk(chunk)
+        try:
+            return state.get_final_completion()
+        except Exception:
+            # get_final_completion() validates more aggressively than the
+            # non-streaming path (e.g. malformed tool-call JSON); fall back to
+            # the raw accumulated completion rather than losing the response
+            return state.current_completion_snapshot
