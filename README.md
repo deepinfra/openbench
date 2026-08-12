@@ -123,6 +123,8 @@ openbench supports 30+ model providers through Inspect AI. Set the appropriate A
 | **W&B Inference**     | `WANDB_API_KEY`        | `wandb/model-name`               |
 | **vLLM**              | None (local)           | `vllm/model-name`                |
 
+> **DeepInfra streaming**: responses are streamed over SSE and reassembled locally when reasoning is requested or `max_tokens >= 8192`, which avoids proxy idle timeouts on long generations. Control it with `-M stream=true|false|auto` (default `auto`) or the `DEEPINFRA_STREAM` environment variable.
+
 ## Available Benchmarks
 
 Here are the currently available benchmarks. For an up-to-date list use `bench list`.
