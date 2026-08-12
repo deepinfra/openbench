@@ -5,7 +5,6 @@ from typing import Any, Literal
 
 from inspect_ai.model._providers.openai_compatible import OpenAICompatibleAPI
 from inspect_ai.model import GenerateConfig
-from openai._types import NOT_GIVEN
 from openai.lib.streaming.chat import ChatCompletionStreamState
 from openai.types.chat import ChatCompletion
 
@@ -96,7 +95,7 @@ class DeepInfraAPI(OpenAICompatibleAPI):
 
         tools = request.get("tools")
         state: ChatCompletionStreamState[object] = ChatCompletionStreamState(
-            input_tools=tools if tools and tools is not NOT_GIVEN else NOT_GIVEN
+            input_tools=tools if isinstance(tools, list) else []
         )
         stream = await self.client.chat.completions.create(
             **request,

@@ -2620,7 +2620,7 @@ requires-dist = [
     { name = "inspect-ai", specifier = "==0.3.142" },
     { name = "inspect-swe", specifier = ">=0.2.26" },
     { name = "jsonschema", specifier = ">=4.23.0" },
-    { name = "mcp", specifier = ">=1.13.1" },
+    { name = "mcp", specifier = ">=1.13.1,<2.0.0" },
     { name = "numpy", specifier = "==2.2.6" },
     { name = "openai", specifier = ">=2.0.0" },
     { name = "pillow", specifier = ">=10.0.0" },
