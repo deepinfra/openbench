@@ -12,7 +12,7 @@ from inspect_ai.solver import TaskState
 
 # Wall clock on the harness event loop, not CPU time: under a burst of
 # completions a saturated loop expired 3s on correct answers.
-TIMEOUT = 30
+TIMEOUT = 10
 
 
 def parse_mbpp_response(response: str) -> str:

@@ -15,7 +15,7 @@ from inspect_ai.util import ExecResult, sandbox
 
 # Wall clock on the harness event loop, not CPU time: under a burst of
 # completions a saturated loop expired 3s on correct answers.
-TIMEOUT = 30
+TIMEOUT = 10
 
 
 # Adapted from https://github.com/UKGovernmentBEIS/inspect_evals
