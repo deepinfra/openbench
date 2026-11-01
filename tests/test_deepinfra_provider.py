@@ -1,7 +1,7 @@
 """Unit tests for the DeepInfra provider.
 
-Covers streaming config and accumulation, the request timeout, and the
-service tier.
+Covers streaming config and accumulation, the request timeout, the service
+tier and the env-set reasoning effort.
 """
 
 import asyncio
@@ -12,7 +12,7 @@ import httpx
 import pytest
 from unittest.mock import AsyncMock, patch
 
-from inspect_ai.model import GenerateConfig
+from inspect_ai.model import ChatMessageUser, GenerateConfig
 from openai.lib.streaming.chat import ChatCompletionStreamState
 from openai.types.chat import (
     ChatCompletion,
@@ -32,6 +32,7 @@ from openbench.model._providers.deepinfra import (
     DEFAULT_REQUEST_TIMEOUT_SECS,
     DeepInfraAPI,
     parse_stream_arg,
+    warn_effort_override,
 )
 
 
@@ -40,6 +41,8 @@ def clean_env(monkeypatch):
     """Keep ambient DeepInfra env vars from leaking into tests."""
     monkeypatch.delenv("DEEPINFRA_STREAM", raising=False)
     monkeypatch.delenv("DEEPINFRA_BASE_URL", raising=False)
+    monkeypatch.delenv("DEEPINFRA_SERVICE_TIER", raising=False)
+    monkeypatch.delenv("DEEPINFRA_REASONING_EFFORT", raising=False)
 
 
 def make_api(**model_args: Any) -> DeepInfraAPI:
@@ -329,41 +332,146 @@ class TestRequestTimeout:
         assert timeout.read == 99.0
 
 
+def config_after_generate(monkeypatch, config: GenerateConfig) -> GenerateConfig:
+    """Run generate() with the parent generate stubbed; return the config it got."""
+    monkeypatch.setenv("DEEPINFRA_API_KEY", "test-key")
+    with patch("inspect_ai.model._providers.openai_compatible.AsyncOpenAI"):
+        api = DeepInfraAPI(model_name="deepinfra/org/model")
+    seen = {}
+
+    async def fake_generate(input, tools, tool_choice, config):
+        seen["config"] = config
+        return None
+
+    with patch.object(type(api).__mro__[1], "generate", side_effect=fake_generate):
+        asyncio.run(api.generate([], [], "auto", config))
+    return seen["config"]
+
+
 class TestServiceTier:
-    def _config_after_generate(self, monkeypatch, config: GenerateConfig):
-        monkeypatch.setenv("DEEPINFRA_API_KEY", "test-key")
-        with patch("inspect_ai.model._providers.openai_compatible.AsyncOpenAI"):
-            api = DeepInfraAPI(model_name="deepinfra/org/model")
-        seen = {}
-
-        async def fake_generate(input, tools, tool_choice, config):
-            seen["config"] = config
-            return None
-
-        with patch.object(
-            type(api).__mro__[1], "generate", side_effect=fake_generate
-        ):
-            asyncio.run(api.generate([], [], "auto", config))
-        return seen["config"]
-
     def test_env_var_sets_the_tier(self, monkeypatch) -> None:
         monkeypatch.setenv("DEEPINFRA_SERVICE_TIER", "flex")
-        config = self._config_after_generate(monkeypatch, GenerateConfig())
+        config = config_after_generate(monkeypatch, GenerateConfig())
         assert config.extra_body is not None
         assert config.extra_body["service_tier"] == "flex"
 
     def test_absent_env_var_leaves_config_alone(self, monkeypatch) -> None:
         monkeypatch.delenv("DEEPINFRA_SERVICE_TIER", raising=False)
-        config = self._config_after_generate(monkeypatch, GenerateConfig())
+        config = config_after_generate(monkeypatch, GenerateConfig())
         assert config.extra_body is None
 
     def test_explicit_extra_body_wins(self, monkeypatch) -> None:
         monkeypatch.setenv("DEEPINFRA_SERVICE_TIER", "flex")
-        config = self._config_after_generate(
+        config = config_after_generate(
             monkeypatch, GenerateConfig(extra_body={"service_tier": "default"})
         )
         assert config.extra_body is not None
         assert config.extra_body["service_tier"] == "default"
+
+
+class TestReasoningEffort:
+    def test_unset_adds_nothing(self, monkeypatch) -> None:
+        config = config_after_generate(monkeypatch, GenerateConfig())
+        assert config.extra_body is None
+        assert config.reasoning_effort is None
+
+    @pytest.mark.parametrize("effort", ["max", "xhigh", "none", "high"])
+    def test_env_var_is_forwarded(self, monkeypatch, effort: str) -> None:
+        monkeypatch.setenv("DEEPINFRA_REASONING_EFFORT", effort)
+        config = config_after_generate(monkeypatch, GenerateConfig())
+        assert config.extra_body == {"reasoning_effort": effort}
+        assert config.reasoning_effort is None
+
+    def test_explicit_extra_body_wins(self, monkeypatch) -> None:
+        monkeypatch.setenv("DEEPINFRA_REASONING_EFFORT", "max")
+        caller_body = {"reasoning_effort": "low", "other": 1}
+        config = config_after_generate(
+            monkeypatch, GenerateConfig(extra_body=caller_body)
+        )
+        assert config.extra_body == {"reasoning_effort": "low", "other": 1}
+        assert caller_body == {"reasoning_effort": "low", "other": 1}
+
+    def test_combines_with_service_tier(self, monkeypatch) -> None:
+        monkeypatch.setenv("DEEPINFRA_REASONING_EFFORT", "xhigh")
+        monkeypatch.setenv("DEEPINFRA_SERVICE_TIER", "flex")
+        caller_body = {"other": 1}
+        config = config_after_generate(
+            monkeypatch, GenerateConfig(extra_body=caller_body)
+        )
+        assert config.extra_body == {
+            "reasoning_effort": "xhigh",
+            "service_tier": "flex",
+            "other": 1,
+        }
+        assert caller_body == {"other": 1}
+
+    def test_conflict_with_inspect_effort_warns_once(self, monkeypatch, caplog) -> None:
+        warn_effort_override.cache_clear()
+        monkeypatch.setenv("DEEPINFRA_REASONING_EFFORT", "max")
+        with caplog.at_level("WARNING"):
+            for _ in range(2):
+                config = config_after_generate(
+                    monkeypatch, GenerateConfig(reasoning_effort="high")
+                )
+        assert config.extra_body == {"reasoning_effort": "max"}
+        assert caplog.text.count("reasoning_effort=max overrides high") == 1
+
+    def test_service_tier_env_with_inspect_effort_does_not_warn(
+        self, monkeypatch, caplog
+    ) -> None:
+        warn_effort_override.cache_clear()
+        monkeypatch.setenv("DEEPINFRA_SERVICE_TIER", "flex")
+        with caplog.at_level("WARNING"):
+            config = config_after_generate(
+                monkeypatch, GenerateConfig(reasoning_effort="high")
+            )
+        assert config.extra_body == {"service_tier": "flex"}
+        assert config.reasoning_effort == "high"
+        assert "overrides" not in caplog.text
+
+    def test_no_warning_when_env_effort_not_applied(self, monkeypatch, caplog) -> None:
+        warn_effort_override.cache_clear()
+        monkeypatch.setenv("DEEPINFRA_REASONING_EFFORT", "max")
+        with caplog.at_level("WARNING"):
+            config_after_generate(
+                monkeypatch,
+                GenerateConfig(
+                    reasoning_effort="high", extra_body={"reasoning_effort": "high"}
+                ),
+            )
+        assert "overrides" not in caplog.text
+
+    def test_auto_streams_for_extra_body_effort(self) -> None:
+        api = make_api()
+        config = GenerateConfig(extra_body={"reasoning_effort": "xhigh"})
+        assert api.should_stream(config) is True
+
+    def test_reaches_the_request_body(self, monkeypatch) -> None:
+        monkeypatch.setenv("DEEPINFRA_REASONING_EFFORT", "xhigh")
+        api = make_api(stream=False)
+        response = ChatCompletion(
+            id="chatcmpl-test",
+            choices=[
+                CompletionChoice(
+                    index=0,
+                    message=ChatCompletionMessage(role="assistant", content="hi"),
+                    finish_reason="stop",
+                )
+            ],
+            created=1,
+            model="test-org/test-model",
+            object="chat.completion",
+        )
+        mock_create = AsyncMock(return_value=response)
+        api.client.chat.completions.create = mock_create  # type: ignore[method-assign]
+
+        asyncio.run(
+            api.generate([ChatMessageUser(content="hi")], [], "none", GenerateConfig())
+        )
+
+        _, kwargs = mock_create.call_args
+        assert kwargs["extra_body"]["reasoning_effort"] == "xhigh"
+        assert "reasoning_effort" not in kwargs
 
 
 @pytest.mark.integration

@@ -1,5 +1,7 @@
 """DeepInfra AI provider implementation."""
 
+import functools
+import logging
 import os
 from typing import Any, Literal
 
@@ -20,6 +22,8 @@ DEFAULT_REQUEST_TIMEOUT_SECS = 3600.0
 # every phase, so an unreachable endpoint would hang for the whole hour.
 CONNECT_TIMEOUT_SECS = 30.0
 
+logger = logging.getLogger(__name__)
+
 
 def parse_stream_arg(value: Any) -> bool | Literal["auto"]:
     """Parse the ``stream`` model arg / env var into True, False, or "auto"."""
@@ -29,6 +33,37 @@ def parse_stream_arg(value: Any) -> bool | Literal["auto"]:
     if text == "auto":
         return "auto"
     return text in ("1", "true", "yes")
+
+
+# Env var -> extra_body key, so a harness can set them without touching eval
+# code; an explicit extra_body setting wins. The effort goes in extra_body
+# because inspect's reasoning_effort only admits minimal/low/medium/high, while
+# DeepInfra also takes none/xhigh/max.
+ENV_EXTRA_BODY = {
+    "DEEPINFRA_SERVICE_TIER": "service_tier",
+    "DEEPINFRA_REASONING_EFFORT": "reasoning_effort",
+}
+
+
+def with_env_extra_body(config: GenerateConfig) -> GenerateConfig:
+    """Return a copy of config with the ENV_EXTRA_BODY settings in extra_body."""
+    from_env = {
+        key: value
+        for env_var, key in ENV_EXTRA_BODY.items()
+        if (value := os.environ.get(env_var))
+    }
+    if not from_env:
+        return config
+    extra_body = {**from_env, **(config.extra_body or {})}
+    effort = extra_body.get("reasoning_effort")
+    if effort is not None and config.reasoning_effort not in (None, effort):
+        warn_effort_override(effort, config.reasoning_effort)
+    return config.model_copy(update={"extra_body": extra_body})
+
+
+@functools.cache
+def warn_effort_override(sent: str, overridden: str) -> None:
+    logger.warning("reasoning_effort=%s overrides %s", sent, overridden)
 
 
 class DeepInfraAPI(OpenAICompatibleAPI):
@@ -46,6 +81,13 @@ class DeepInfraAPI(OpenAICompatibleAPI):
     An optional service tier can be set via the ``DEEPINFRA_SERVICE_TIER``
     environment variable ("flex" rides spare capacity); an explicit
     ``extra_body`` setting wins.
+
+    Any reasoning effort DeepInfra accepts (none/minimal/low/medium/high/
+    xhigh/max) can be set via ``DEEPINFRA_REASONING_EFFORT`` and is sent in
+    ``extra_body``, where it overrides ``--reasoning-effort`` /
+    ``BENCH_REASONING_EFFORT`` (leave those unset; setting both logs a
+    warning). It applies to every ``deepinfra/`` model in the process,
+    including a DeepInfra-served grader.
     """
 
     def __init__(
@@ -103,16 +145,9 @@ class DeepInfraAPI(OpenAICompatibleAPI):
         tool_choice: ToolChoice,
         config: GenerateConfig,
     ) -> ModelOutput | tuple[ModelOutput | Exception, ModelCall]:
-        # DeepInfra accepts an optional service_tier ("flex" rides spare
-        # capacity). Set via env so a harness can control it without touching
-        # eval code; an explicit extra_body setting wins.
-        service_tier = os.environ.get("DEEPINFRA_SERVICE_TIER")
-        if service_tier:
-            config = config.model_copy()
-            if config.extra_body is None:
-                config.extra_body = {}
-            config.extra_body.setdefault("service_tier", service_tier)
-        return await super().generate(input, tools, tool_choice, config)
+        return await super().generate(
+            input, tools, tool_choice, with_env_extra_body(config)
+        )
 
     def should_stream(self, config: GenerateConfig) -> bool:
         """Decide whether this request goes over SSE."""
@@ -122,6 +157,7 @@ class DeepInfraAPI(OpenAICompatibleAPI):
         # to risk proxy idle/read timeouts
         return (
             config.reasoning_effort is not None
+            or (config.extra_body or {}).get("reasoning_effort") is not None
             or config.reasoning_tokens is not None
             or (config.max_tokens is not None and config.max_tokens >= 8192)
         )
