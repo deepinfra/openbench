@@ -56,7 +56,7 @@ def with_env_extra_body(config: GenerateConfig) -> GenerateConfig:
         return config
     extra_body = {**from_env, **(config.extra_body or {})}
     effort = extra_body.get("reasoning_effort")
-    if config.reasoning_effort is not None and effort != config.reasoning_effort:
+    if effort is not None and config.reasoning_effort not in (None, effort):
         warn_effort_override(effort, config.reasoning_effort)
     return config.model_copy(update={"extra_body": extra_body})
 

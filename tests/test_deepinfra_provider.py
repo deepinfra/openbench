@@ -416,6 +416,19 @@ class TestReasoningEffort:
         assert config.extra_body == {"reasoning_effort": "max"}
         assert caplog.text.count("reasoning_effort=max overrides high") == 1
 
+    def test_service_tier_env_with_inspect_effort_does_not_warn(
+        self, monkeypatch, caplog
+    ) -> None:
+        warn_effort_override.cache_clear()
+        monkeypatch.setenv("DEEPINFRA_SERVICE_TIER", "flex")
+        with caplog.at_level("WARNING"):
+            config = config_after_generate(
+                monkeypatch, GenerateConfig(reasoning_effort="high")
+            )
+        assert config.extra_body == {"service_tier": "flex"}
+        assert config.reasoning_effort == "high"
+        assert "overrides" not in caplog.text
+
     def test_no_warning_when_env_effort_not_applied(self, monkeypatch, caplog) -> None:
         warn_effort_override.cache_clear()
         monkeypatch.setenv("DEEPINFRA_REASONING_EFFORT", "max")
